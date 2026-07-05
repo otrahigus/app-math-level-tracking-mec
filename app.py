@@ -118,7 +118,7 @@ def halaman_guru():
                 default=["Aktif", "Terpakai", "Kadaluarsa"]
             )
             filtered = [r for r in records if r.get("status") in filter_status]
-            st.dataframe(filtered, use_container_width=True)
+            st.dataframe(filtered, width='stretch')
         else:
             st.caption("Belum ada kode akses yang dibuat.")
 
@@ -127,7 +127,7 @@ def halaman_guru():
         st.subheader("Data Siswa")
         records = sm.get_all_records("siswa")
         if records:
-            st.dataframe(records, use_container_width=True)
+            st.dataframe(records, width='stretch')
         else:
             st.caption("Belum ada siswa terdaftar.")
 
@@ -136,7 +136,7 @@ def halaman_guru():
         st.subheader("Riwayat Pengerjaan Soal")
         records = sm.get_all_records("riwayat")
         if records:
-            st.dataframe(list(reversed(records)), use_container_width=True)
+            st.dataframe(list(reversed(records)), width='stretch')
         else:
             st.caption("Belum ada riwayat.")
 
