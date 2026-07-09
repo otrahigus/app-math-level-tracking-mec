@@ -87,6 +87,28 @@ def halaman_guru():
                 st.error("Password salah.")
         return
 
+    # --- Ambil data sekali di awal, dipakai bersama di semua tab ---
+    siswa_records = sm.get_all_records("siswa")
+    kode_records = sm.get_all_records("kode_akses")
+    riwayat_records = sm.get_all_records("riwayat")
+
+    # --- RINGKASAN DASHBOARD ---
+    kode_aktif = sum(1 for r in kode_records if r.get("status") == "Aktif")
+    kode_terpakai = sum(1 for r in kode_records if r.get("status") == "Terpakai")
+    pendapatan = sum(
+        int(r.get("harga", 0) or 0) for r in kode_records if r.get("status") == "Terpakai"
+    )
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("👥 Total Siswa", len(siswa_records))
+    c2.metric("🎫 Kode Aktif", kode_aktif)
+    c3.metric("✅ Kode Terpakai", kode_terpakai)
+    c4.metric("💰 Pendapatan", rupiah(pendapatan))
+    if st.button("🔄 Muat Ulang Data", help="Ambil data terbaru dari Google Sheets"):
+        sm._invalidate_cache()
+        st.rerun()
+
+    st.divider()
+
     tab1, tab2, tab3, tab4 = st.tabs(
         ["💳 Generate Kode Akses", "📋 Daftar Kode", "👥 Data Siswa", "📊 Riwayat"]
     )
@@ -94,49 +116,111 @@ def halaman_guru():
     # --- TAB 1: Generate kode akses ---
     with tab1:
         st.subheader("Buat Kode Akses Baru")
-        opsi = config.all_level_options()
-        labels = [f"Level {lvl} - Sub {sub} ({config.get_sub_nama(lvl, sub)})" for lvl, sub in opsi]
-        idx = st.selectbox("Pilih Level & Sub-Level", range(len(opsi)), format_func=lambda i: labels[i])
-        lvl_pilih, sub_pilih = opsi[idx]
+
+        # Langkah 1: pilih siswa -> level & sub-level otomatis terisi
+        nama_siswa_list = sorted({str(r.get("nama", "")).strip() for r in siswa_records if r.get("nama")})
+        opsi_siswa = ["-- Pilih siswa terdaftar (opsional) --"] + nama_siswa_list
+        pilih_siswa = st.selectbox(
+            "1️⃣ Pilih Siswa",
+            opsi_siswa,
+            help="Pilih siswa yang sudah terdaftar supaya Level & Sub-Level "
+                 "otomatis terisi sesuai progres terakhirnya."
+        )
+
+        default_level, default_sub = 0, 1
+        nama_pembeli_default = ""
+        if pilih_siswa != opsi_siswa[0]:
+            rec = next((r for r in siswa_records if str(r.get("nama", "")).strip() == pilih_siswa), None)
+            if rec:
+                default_level = int(rec.get("level", 0) or 0)
+                default_sub = int(rec.get("sub_level", 1) or 1)
+                nama_pembeli_default = pilih_siswa
+                st.caption(
+                    f"📍 Progres terakhir **{pilih_siswa}**: Level {default_level}.{default_sub} — "
+                    f"{config.get_sub_nama(default_level, default_sub)} "
+                    f"(Level & Sub-Level di bawah otomatis diarahkan ke sini)"
+                )
+
+        st.markdown("**2️⃣ Level & Sub-Level**")
+        col1, col2 = st.columns(2)
+        level_list = sorted(config.LEVELS.keys())
+        with col1:
+            level_labels = [
+                f"Level {l} — {config.get_materi(l)} ({config.get_kesulitan(l)})" for l in level_list
+            ]
+            level_idx_default = level_list.index(default_level) if default_level in level_list else 0
+            level_idx = st.selectbox(
+                "Level", range(len(level_list)), index=level_idx_default,
+                format_func=lambda i: level_labels[i], key=f"pilih_level_guru_{pilih_siswa}"
+            )
+            lvl_pilih = level_list[level_idx]
+        with col2:
+            sub_list = sorted(config.LEVELS[lvl_pilih]["sub"].keys())
+            sub_labels = [f"Sub {s} — {config.get_sub_nama(lvl_pilih, s)}" for s in sub_list]
+            sub_idx_default = sub_list.index(default_sub) if (lvl_pilih == default_level and default_sub in sub_list) else 0
+            sub_idx = st.selectbox(
+                "Sub-Level", range(len(sub_list)), index=sub_idx_default,
+                format_func=lambda i: sub_labels[i], key=f"pilih_sub_guru_{pilih_siswa}_{lvl_pilih}"
+            )
+            sub_pilih = sub_list[sub_idx]
+
         harga = config.get_harga(lvl_pilih)
         kesulitan = config.get_kesulitan(lvl_pilih)
         st.info(f"Tingkat kesulitan: **{kesulitan}** — Harga: **{rupiah(harga)}**")
-        nama_pembeli = st.text_input("Nama siswa pembeli (opsional, bisa diisi nanti)")
+
+        st.markdown("**3️⃣ Konfirmasi**")
+        nama_pembeli = st.text_input("Nama siswa pembeli", value=nama_pembeli_default)
+
         if st.button("🎫 Generate Kode Akses", type="primary"):
             kode = sm.buat_kode_akses(lvl_pilih, sub_pilih, harga, nama_pembeli)
-            st.success(f"Kode berhasil dibuat: **{kode}**")
+            st.success(f"Kode berhasil dibuat: **`{kode}`**")
             st.caption("Kode berlaku 7 hari dan hanya bisa dipakai 1 kali. "
                        "Berikan kode ini kepada siswa setelah pembayaran diterima.")
+            st.rerun()
 
     # --- TAB 2: Daftar kode akses ---
     with tab2:
         st.subheader("Semua Kode Akses")
-        records = sm.get_all_records("kode_akses")
-        if records:
-            filter_status = st.multiselect(
-                "Filter status", ["Aktif", "Terpakai", "Kadaluarsa"],
-                default=["Aktif", "Terpakai", "Kadaluarsa"]
-            )
-            filtered = [r for r in records if r.get("status") in filter_status]
-            st.dataframe(filtered, width='stretch')
+        if kode_records:
+            colf1, colf2 = st.columns([2, 1])
+            with colf1:
+                cari_nama = st.text_input("🔍 Cari nama siswa / kode", key="cari_kode")
+            with colf2:
+                filter_status = st.multiselect(
+                    "Filter status", ["Aktif", "Terpakai", "Kadaluarsa"],
+                    default=["Aktif", "Terpakai", "Kadaluarsa"]
+                )
+            filtered = [r for r in kode_records if r.get("status") in filter_status]
+            if cari_nama:
+                kw = cari_nama.strip().lower()
+                filtered = [
+                    r for r in filtered
+                    if kw in str(r.get("dibeli_oleh", "")).lower() or kw in str(r.get("kode", "")).lower()
+                ]
+            st.caption(f"Menampilkan {len(filtered)} dari {len(kode_records)} kode.")
+            st.dataframe(list(reversed(filtered)), width='stretch')
         else:
             st.caption("Belum ada kode akses yang dibuat.")
 
     # --- TAB 3: Data siswa ---
     with tab3:
         st.subheader("Data Siswa")
-        records = sm.get_all_records("siswa")
-        if records:
-            st.dataframe(records, width='stretch')
+        if siswa_records:
+            cari_siswa_kw = st.text_input("🔍 Cari nama siswa", key="cari_siswa")
+            filtered_siswa = siswa_records
+            if cari_siswa_kw:
+                kw = cari_siswa_kw.strip().lower()
+                filtered_siswa = [r for r in siswa_records if kw in str(r.get("nama", "")).lower()]
+            st.caption(f"Menampilkan {len(filtered_siswa)} dari {len(siswa_records)} siswa.")
+            st.dataframe(filtered_siswa, width='stretch')
         else:
             st.caption("Belum ada siswa terdaftar.")
 
     # --- TAB 4: Riwayat ---
     with tab4:
         st.subheader("Riwayat Pengerjaan Soal")
-        records = sm.get_all_records("riwayat")
-        if records:
-            st.dataframe(list(reversed(records)), width='stretch')
+        if riwayat_records:
+            st.dataframe(list(reversed(riwayat_records)), width='stretch')
         else:
             st.caption("Belum ada riwayat.")
 
