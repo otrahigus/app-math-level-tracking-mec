@@ -34,6 +34,7 @@ def init_state():
         "quiz_sub": None,
         "quiz_jawaban": {},
         "quiz_kode": None,
+        "quiz_kode_terpakai": False,
         "quiz_selesai": False,
         "quiz_hasil": None,
     }
@@ -234,12 +235,13 @@ def halaman_guru():
 # MODE SISWA
 # ---------------------------------------------------------------------------
 
-def mulai_quiz(level, sub, kode):
+def mulai_quiz(level, sub, kode, sudah_terpakai=False):
     soal_list = questions.get_questions(level, sub, 5)
     st.session_state.quiz_soal = soal_list
     st.session_state.quiz_level = level
     st.session_state.quiz_sub = sub
     st.session_state.quiz_kode = kode
+    st.session_state.quiz_kode_terpakai = sudah_terpakai
     st.session_state.quiz_jawaban = {}
     st.session_state.quiz_selesai = False
     st.session_state.quiz_hasil = None
@@ -248,22 +250,42 @@ def mulai_quiz(level, sub, kode):
 def halaman_siswa():
     st.title("🎓 Tracking Level Matematika")
 
-    nama = st.text_input("Nama lengkap kamu", value=st.session_state.siswa_nama)
-    if nama:
-        st.session_state.siswa_nama = nama.strip()
+    siswa_records_all = sm.get_all_records("siswa")
+    nama_list = sorted({str(r.get("nama", "")).strip() for r in siswa_records_all if r.get("nama")})
+    OPSI_BARU = "✍️ Saya siswa baru (nama belum ada di daftar)"
+    OPSI_KOSONG = "-- Pilih nama kamu --"
+    opsi_nama = [OPSI_KOSONG] + nama_list + [OPSI_BARU]
 
-    if not st.session_state.siswa_nama:
-        st.info("Masukkan nama untuk melanjutkan.")
+    default_idx = 0
+    if st.session_state.siswa_nama in nama_list:
+        default_idx = opsi_nama.index(st.session_state.siswa_nama)
+
+    pilihan = st.selectbox("👤 Nama kamu", opsi_nama, index=default_idx)
+
+    if pilihan == OPSI_KOSONG:
+        st.info("Pilih nama kamu di atas untuk melanjutkan.")
         return
 
+    if pilihan == OPSI_BARU:
+        st.warning("Kamu belum terdaftar. Isi data di bawah untuk daftar.")
+        nama_baru = st.text_input("Nama lengkap")
+        kelas_baru = st.text_input("Kelas")
+        if st.button("Daftar sebagai siswa baru"):
+            if not nama_baru.strip():
+                st.error("Nama tidak boleh kosong.")
+            elif nama_baru.strip() in nama_list:
+                st.error("Nama ini sudah terdaftar, silakan pilih dari daftar dropdown di atas.")
+            else:
+                sm.daftar_siswa_baru(nama_baru.strip(), kelas_baru)
+                st.session_state.siswa_nama = nama_baru.strip()
+                st.success("Berhasil daftar! Silakan lanjutkan.")
+                st.rerun()
+        return
+
+    st.session_state.siswa_nama = pilihan
     siswa = sm.cari_siswa(st.session_state.siswa_nama)
     if siswa is None:
-        st.warning("Nama kamu belum terdaftar.")
-        kelas = st.text_input("Kelas")
-        if st.button("Daftar sebagai siswa baru"):
-            sm.daftar_siswa_baru(st.session_state.siswa_nama, kelas)
-            st.success("Berhasil daftar! Silakan lanjutkan.")
-            st.rerun()
+        st.error("Data siswa tidak ditemukan, coba muat ulang halaman.")
         return
 
     lvl_now = int(siswa["level"])
@@ -353,7 +375,9 @@ def tampilkan_quiz():
             st.session_state.siswa_nama, level, sub, skor,
             "LULUS" if lulus else "ULANGI"
         )
-        sm.pakai_kode(st.session_state.quiz_kode, st.session_state.siswa_nama)
+        if not st.session_state.quiz_kode_terpakai:
+            sm.pakai_kode(st.session_state.quiz_kode, st.session_state.siswa_nama)
+            st.session_state.quiz_kode_terpakai = True
 
         next_info = None
         if lulus:
@@ -389,9 +413,11 @@ def tampilkan_hasil():
                     f"Harga sub-level ini: **{rupiah(harga_next)}**. "
                     f"Beli kode akses baru untuk melanjutkan.")
     else:
-        harga_ulang = config.get_harga(hasil["level"])
-        st.error(f"Skor kamu belum mencapai 80%. Kamu perlu mengulang sub-level ini "
-                 f"dengan kode akses baru (harga: **{rupiah(harga_ulang)}**).")
+        st.error("Skor kamu belum mencapai 80%. Tenang, kamu bisa coba lagi "
+                 "**tanpa perlu kode baru** — sub-level ini sudah kamu bayar.")
+        if st.button("🔁 Coba Lagi Sekarang (gratis)", type="primary"):
+            mulai_quiz(hasil["level"], hasil["sub"], st.session_state.quiz_kode, sudah_terpakai=True)
+            st.rerun()
 
     with st.expander("Lihat pembahasan jawaban"):
         for i, d in enumerate(hasil["detail"]):
@@ -404,6 +430,8 @@ def tampilkan_hasil():
         st.session_state.quiz_selesai = False
         st.session_state.quiz_hasil = None
         st.session_state.quiz_jawaban = {}
+        st.session_state.quiz_kode = None
+        st.session_state.quiz_kode_terpakai = False
         st.rerun()
 
 
