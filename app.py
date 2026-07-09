@@ -266,11 +266,21 @@ def halaman_siswa():
             st.rerun()
         return
 
+    lvl_now = int(siswa["level"])
+    sub_now = int(siswa["sub_level"])
+    harga_now = config.get_harga(lvl_now)
+    kesulitan_now = config.get_kesulitan(lvl_now)
+
     st.success(
         f"Halo, **{siswa['nama']}**! Level kamu saat ini: "
-        f"**Level {siswa['level']}.{siswa['sub_level']}** "
-        f"({config.get_sub_nama(int(siswa['level']), int(siswa['sub_level']))})"
+        f"**Level {lvl_now}.{sub_now}** "
+        f"({config.get_sub_nama(lvl_now, sub_now)})"
     )
+
+    colA, colB = st.columns(2)
+    colA.metric("💰 Harga sub-level ini", rupiah(harga_now))
+    colB.metric("📶 Tingkat kesulitan", kesulitan_now)
+    st.caption("Bayar sesuai harga di atas ke guru untuk mendapatkan kode akses sub-level ini.")
 
     # Jika sedang mengerjakan quiz, tampilkan quiz
     if st.session_state.quiz_soal and not st.session_state.quiz_selesai:
@@ -297,11 +307,18 @@ def halaman_siswa():
             mulai_quiz(level_kode, sub_kode, kode_input)
             st.rerun()
 
-    with st.expander("💰 Lihat Daftar Harga Sub-Level"):
-        for lvl in sorted(config.LEVELS.keys()):
-            info = config.LEVELS[lvl]
-            st.markdown(f"**Level {lvl} — {info['materi']}** ({info['kesulitan']}, "
-                        f"{rupiah(config.get_harga(lvl))}/sub-level)")
+    with st.expander("💰 Lihat Daftar Harga Semua Level", expanded=False):
+        tabel_harga = [
+            {
+                "Level": lvl,
+                "Materi": config.LEVELS[lvl]["materi"],
+                "Kesulitan": config.LEVELS[lvl]["kesulitan"],
+                "Harga/Sub-Level": rupiah(config.get_harga(lvl)),
+            }
+            for lvl in sorted(config.LEVELS.keys())
+        ]
+        st.dataframe(tabel_harga, width="stretch", hide_index=True)
+        st.caption("Mudah: Rp5.000 · Sedang: Rp10.000 · Sulit: Rp15.000 per sub-level")
 
 
 def tampilkan_quiz():
@@ -367,11 +384,14 @@ def tampilkan_hasil():
             st.success("Kamu sudah menyelesaikan SEMUA level! Luar biasa! 🏆")
         elif hasil["next_info"]:
             nl, ns = hasil["next_info"]
+            harga_next = config.get_harga(nl)
             st.info(f"Kamu naik ke **Level {nl}.{ns}** — {config.get_sub_nama(nl, ns)}. "
+                    f"Harga sub-level ini: **{rupiah(harga_next)}**. "
                     f"Beli kode akses baru untuk melanjutkan.")
     else:
-        st.error("Skor kamu belum mencapai 80%. Kamu perlu mengulang sub-level ini "
-                  "dengan kode akses baru.")
+        harga_ulang = config.get_harga(hasil["level"])
+        st.error(f"Skor kamu belum mencapai 80%. Kamu perlu mengulang sub-level ini "
+                 f"dengan kode akses baru (harga: **{rupiah(harga_ulang)}**).")
 
     with st.expander("Lihat pembahasan jawaban"):
         for i, d in enumerate(hasil["detail"]):
